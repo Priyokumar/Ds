@@ -13,11 +13,8 @@ public class ServerApplication {
 		System.out.println("\n\n\n\n\n");
 		System.out.println(encode);
 		System.out.println("\n\n\n\n\n");
-		
 		SpringApplication.run(ServerApplication.class, args);
-		
-		int d= 3; 
-		int b = d++; 
+	
 	}
 
 }
