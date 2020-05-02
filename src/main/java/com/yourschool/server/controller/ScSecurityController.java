@@ -1,7 +1,5 @@
 package com.yourschool.server.controller;
 
-import java.util.Objects;
-
 import javax.servlet.http.HttpServletResponse;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.yourschool.server.dto.ActionResponse;
 import com.yourschool.server.dto.security.ChangePassword;
 import com.yourschool.server.dto.security.Login;
+import com.yourschool.server.dto.security.LoginOtpVerificationRequest;
 import com.yourschool.server.dto.security.LoginResponse;
 import com.yourschool.server.dto.user.RolesResponse;
 import com.yourschool.server.service.ScSecurityService;
@@ -26,23 +25,26 @@ import com.yourschool.server.service.ScSecurityService;
 @RestController
 @RequestMapping("")
 public class ScSecurityController {
-	
+
 	@Autowired
 	private ScSecurityService securityService;
 
 	@PostMapping(value = "/login")
-	public ResponseEntity<LoginResponse> login(@RequestBody Login login, HttpServletResponse response) throws Exception {
-		
+	public ResponseEntity<LoginResponse> login(@RequestBody Login login, HttpServletResponse response)
+			throws Exception {
+
 		LoginResponse resp = securityService.login(login);
-		
-		Objects.requireNonNull(resp);
-		
-		HttpCookie cookie = ResponseCookie.from("token", resp.getToken()).path("/")
-		        .build();
-		
-		return ResponseEntity.ok()
-		        .header(HttpHeaders.SET_COOKIE, cookie.toString())
-		        .body(resp);
+
+		return ResponseEntity.ok().body(resp);
+	}
+
+	@PostMapping(value = "/login/otp-verification")
+	public ResponseEntity<ActionResponse> otpVerification(@RequestBody LoginOtpVerificationRequest request) {
+
+		ActionResponse response = securityService.verify(request);
+		HttpCookie cookie = ResponseCookie.from("token", response.getApiMessage().getDetail()).path("/").build();
+
+		return ResponseEntity.ok().header(HttpHeaders.SET_COOKIE, cookie.toString()).body(response);
 	}
 
 	@GetMapping(value = "/{id}/logout")
@@ -54,7 +56,7 @@ public class ScSecurityController {
 	public ActionResponse changePassword(@RequestBody ChangePassword changePassword) {
 		return securityService.changePassword(changePassword);
 	}
-	
+
 	@GetMapping(value = "/{userId}/roles")
 	public RolesResponse roles(@PathVariable("userId") Long userId) {
 		return securityService.roles(userId);

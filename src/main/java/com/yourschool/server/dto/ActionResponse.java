@@ -4,7 +4,7 @@ public class ActionResponse {
 
 	private String actionMessage;
 
-	private ApiMessage apiMessage;
+	private ApiMessage apiMessage = new ApiMessage();
 
 	public String getActionMessage() {
 		return actionMessage;
