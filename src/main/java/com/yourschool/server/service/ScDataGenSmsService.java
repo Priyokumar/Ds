@@ -28,7 +28,7 @@ public class ScDataGenSmsService {
 	public ScDatagenResponse sendSms(String contactNumber, String message) {
 		
 		ScDatagenResponse smsResponse = new ScDatagenResponse();
-		
+		System.out.println("Sending sms");
 		try {
 			RestTemplate restTemplate = scBeansService.getBeans().getRestTemplate();
 
@@ -54,7 +54,8 @@ public class ScDataGenSmsService {
 			
 			ObjectMapper mapper = new ObjectMapper();
 			smsResponse = mapper.readValue(body, ScDatagenResponse.class);
-			
+			System.out.println("sms response :");
+			System.out.println(smsResponse);
 
 		} catch (Exception e) {
 			smsResponse.setStatus(DataGenSMSStatus.FAILED_TO_SEND);
