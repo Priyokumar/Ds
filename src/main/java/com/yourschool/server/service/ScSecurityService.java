@@ -23,25 +23,36 @@ import com.yourschool.server.dto.ApiMessage;
 import com.yourschool.server.dto.ApiUtil;
 import com.yourschool.server.dto.error.InternalServerException;
 import com.yourschool.server.dto.error.NotFoundException;
+import com.yourschool.server.dto.error.PreConditionFailedException;
+import com.yourschool.server.dto.error.UnAuthorizedException;
 import com.yourschool.server.dto.security.ChangePassword;
 import com.yourschool.server.dto.security.Login;
+import com.yourschool.server.dto.security.LoginOtpVerificationRequest;
 import com.yourschool.server.dto.security.LoginResponse;
 import com.yourschool.server.dto.user.Menu;
 import com.yourschool.server.dto.user.Role;
 import com.yourschool.server.dto.user.RolesResponse;
 import com.yourschool.server.dto.user.SubMenu;
+import com.yourschool.server.dto.user.UserResponse;
+import com.yourschool.server.entity.sms.ScDatagenResponse;
 import com.yourschool.server.entity.user.SCUserRole;
+import com.yourschool.server.entity.user.ScLoginOTP;
 import com.yourschool.server.entity.user.ScMenu;
 import com.yourschool.server.entity.user.ScRole;
 import com.yourschool.server.entity.user.ScSubMenu;
 import com.yourschool.server.entity.user.ScUser;
 import com.yourschool.server.entity.user.ScUserAudit;
 import com.yourschool.server.service.common.CommonService;
+import com.yourschool.server.util.ScDateUtil;
+import com.yourschool.server.util.ScOTPUtils;
 import com.yourschool.server.util.ScUtil;
 import com.yourschool.server.vo.ActionType;
 import com.yourschool.server.vo.ApiMessageType;
+import com.yourschool.server.vo.DataGenSMSStatus;
 import com.yourschool.server.vo.FieldType;
 import com.yourschool.server.vo.Filter;
+import com.yourschool.server.vo.LoginStatus;
+import com.yourschool.server.vo.OTPStatus;
 import com.yourschool.server.vo.Operator;
 
 @Service
@@ -55,37 +66,76 @@ public class ScSecurityService {
 
 	@Autowired
 	private JwtTokenUtil jwtTokenUtil;
-	
+
 	@Autowired
 	private ScUserService userService;
 
 	@Autowired
 	private UserDetailsService userDetailService;
+	
+	@Autowired
+	private ScDataGenSmsService dataGenSmsService;
 
 	public LoginResponse login(Login login) throws Exception {
 
 		LoginResponse res = new LoginResponse();
-		
+
 		authenticate(login.getEmail(), login.getPassword());
 
-		final UserDetails userDetails = userDetailService
-				.loadUserByUsername(login.getEmail());
-		
-		String userDataStr = "";
-		
-		try {
-			ObjectMapper om = new ObjectMapper();
-			userDataStr = om.writeValueAsString(userService.findUserResponse(userDetails.getUsername()));
-		} catch (Exception e) {
-			
-		}
+		final UserDetails userDetails = userDetailService.loadUserByUsername(login.getEmail());
 
-		final String token = jwtTokenUtil.generateToken(userDataStr);
-		res.setToken(token);
-	
+		/*
+		 * String userDataStr = ""; UserResponse userResponse =
+		 * userService.findUserResponse(userDetails.getUsername());
+		 * 
+		 * try { ObjectMapper om = new ObjectMapper(); userDataStr =
+		 * om.writeValueAsString(userResponse); final String token =
+		 * jwtTokenUtil.generateToken(userDataStr); res.setToken(token); } catch
+		 * (Exception e) {
+		 * 
+		 * }
+		 */
+
+		res.setStatus(LoginStatus.LOGIN_SUCCESS);
+		ScUser user = userService.findUserByName(userDetails.getUsername());
+		
+		List<Filter> filters = Arrays.asList(
+				new Filter("userId", Operator.EQUAL, FieldType.STRING, user.getId()),
+				new Filter("status", Operator.EQUAL, FieldType.STRING, OTPStatus.ACTIVE)
+				);
+		
+		ScLoginOTP oldLoginOTP = commonService.findOne(filters, ScLoginOTP.class);
+		
+		if(oldLoginOTP != null) {
+			commonService.delete(oldLoginOTP);
+		}
+		
+		
+		ScLoginOTP loginOTP = new ScLoginOTP();
+		loginOTP.setOtp(ScOTPUtils.generateOTP());
+		loginOTP.setTimeStamp(ScDateUtil.now());
+		loginOTP.setUserId(user.getId());
+		loginOTP.setStatus(OTPStatus.ACTIVE);
+		loginOTP = commonService.save(loginOTP);
+		
+		String message = "Your one time password is "+loginOTP.getOtp() +" and it will expire in 5 minutes.";
+
+		ScDatagenResponse smsResponse = dataGenSmsService.sendSms(user.getMobile(), message);
+		
+		loginOTP.setSmsId(smsResponse.getCampg_id());
+		loginOTP.setSmsStatus(smsResponse.getStatus());
+		
+		if(loginOTP.getSmsStatus().equals(DataGenSMSStatus.FAILED_TO_SEND)) {
+			System.out.println("Failed to send sms.");
+		} else if(loginOTP.getSmsStatus().equals(DataGenSMSStatus.FAILURE)) {
+			System.out.println("Sent sms but response got as failure");
+		}
+		
+		loginOTP = commonService.save(loginOTP);
+		
 		return res;
 	}
-	
+
 	private void authenticate(String username, String password) throws Exception {
 		Objects.requireNonNull(username);
 		Objects.requireNonNull(password);
@@ -234,6 +284,67 @@ public class ScSecurityService {
 		res.setApiMessage(ApiUtil.okMessage("Success"));
 		res.setData(dtoRoles);
 		return res;
+	}
+
+	public ActionResponse verify(LoginOtpVerificationRequest request) {
+
+		ActionResponse response = new ActionResponse();
+
+		String userName = request.getUserName();
+		Integer otp = request.getOtp();
+
+		ScUser user = userService.findUserByName(userName);
+
+		if (user == null) {
+			throw new NotFoundException("User not found.");
+		}
+
+		List<Filter> filters = Arrays.asList(
+				new Filter("userId", Operator.EQUAL, FieldType.STRING, user.getId()),
+				new Filter("status", Operator.EQUAL, FieldType.STRING, OTPStatus.ACTIVE)
+				);
+		
+		ScLoginOTP loginOTP = commonService.findOne(filters, ScLoginOTP.class);
+		
+		if(loginOTP == null) {
+			throw new UnAuthorizedException("Otp not found.");
+		}
+
+		if (loginOTP.getOtp().equals(otp)) {
+
+			Date otpDate = loginOTP.getTimeStamp();
+			Date currentDate = ScDateUtil.now();
+
+			long diff = currentDate.getTime() - otpDate.getTime();
+			long diffMinutes = diff / (60 * 1000) % 60;
+
+			if (diffMinutes > 5) {
+				loginOTP.setStatus(OTPStatus.EXPIRED);
+				commonService.save(loginOTP);
+				throw new PreConditionFailedException("OTP expired.");
+			}
+
+			String userDataStr = "";
+			UserResponse userResponse = userService.findUserResponse(userName);
+
+			try {
+				ObjectMapper om = new ObjectMapper();
+				userDataStr = om.writeValueAsString(userResponse);
+				final String token = jwtTokenUtil.generateToken(userDataStr);
+				response.getApiMessage().setDetail(token);
+			} catch (Exception e) {
+
+			}
+			loginOTP.setStatus(OTPStatus.EXPIRED);
+			commonService.save(loginOTP);
+			response.getApiMessage().setError(false);
+			response.setActionMessage(LoginStatus.OTP_VERIFIED);
+
+		} else {
+			throw new InternalServerException("Invalid OTP");
+		}
+
+		return response;
 	}
 
 }

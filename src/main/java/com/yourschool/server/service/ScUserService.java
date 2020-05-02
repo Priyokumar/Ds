@@ -71,6 +71,14 @@ public class ScUserService {
 		return res;
 	}
 	
+	public ScUser findUserByName(String username) {
+
+		List<Filter> filters =  new ArrayList<>();
+		filters.add(new Filter("email", Operator.EQUAL, FieldType.STRING, username));
+		ScUser user = this.commonService.findOne(filters, ScUser.class);
+		return user;
+	}
+	
 	public UserResponse findUserResponse(String username) {
 
 		UserResponse res = new UserResponse();

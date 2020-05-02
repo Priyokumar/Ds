@@ -60,7 +60,7 @@ public class ScDateUtil {
 	}
 
 	public static Date now() {
-		return Date.from(LocalDate.now().atStartOfDay(DEFAULT_ZONE_ID).toInstant());
+		return new Date();
 	}
 	
 	public static String getMonth(int month) {
